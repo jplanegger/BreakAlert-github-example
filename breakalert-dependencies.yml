@@ -1,0 +1,16 @@
+dependencies:
+  serviceX:
+    providerUrl: https://gitlab.example.com/platform/service-x
+    branch: main
+    notifications:
+      - type: email
+        recipients:
+          - service-x-maintainer@example.com
+
+  serviceY:
+    providerUrl: https://github.com/example/service-y
+    branch: develop
+    notifications:
+      - type: email
+        recipients:
+          - service-y-maintainer@example.com
