@@ -6,7 +6,7 @@ dependencies:
       - type: email
         recipients:
           - service-x-maintainer@example.com
-
+  
   serviceY:
     providerUrl: https://github.com/example/service-y
     branch: develop
