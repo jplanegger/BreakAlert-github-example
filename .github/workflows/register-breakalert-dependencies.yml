@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: your-environment-name
     
+    env:
+      CONFIG_PATH: ${{ vars.CONFIG_PATH }}
+      BREAKALERT_BASE_URL: ${{ vars.BREAKALERT_BASE_URL }}
+      BREAKALERT_CLIENT_WEBHOOK: ${{ secrets.BREAKALERT_CLIENT_WEBHOOK }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
