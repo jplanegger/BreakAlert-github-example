@@ -16,11 +16,8 @@ concurrency:
 jobs:
   register-dependencies:
     runs-on: ubuntu-latest
-    env:
-      CONFIG_PATH: breakalert-dependencies.yml
-      BREAKALERT_BASE_URL: ${{ vars.BREAKALERT_BASE_URL }}
-      BREAKALERT_CLIENT_WEBHOOK: ${{ secrets.BREAKALERT_CLIENT_WEBHOOK }}
-
+    environment: your-environment-name
+    
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
