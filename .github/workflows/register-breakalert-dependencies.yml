@@ -1,0 +1,132 @@
+name: Register BreakAlert dependencies
+
+on:
+  push:
+    paths:
+      - breakalert-dependencies.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: breakalert-dependency-registration-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  register-dependencies:
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: breakalert-dependencies.yml
+      BREAKALERT_BASE_URL: ${{ vars.BREAKALERT_BASE_URL }}
+      BREAKALERT_CLIENT_WEBHOOK: ${{ secrets.BREAKALERT_CLIENT_WEBHOOK }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check repository configuration
+        shell: bash
+        run: |
+          if [[ -z "$BREAKALERT_BASE_URL" ]]; then
+            echo "Repository variable BREAKALERT_BASE_URL is required." >&2
+            exit 1
+          fi
+
+          if [[ -z "$BREAKALERT_CLIENT_WEBHOOK" ]]; then
+            echo "Repository secret BREAKALERT_CLIENT_WEBHOOK is required." >&2
+            exit 1
+          fi
+
+      - name: Validate configuration and create API payload
+        shell: bash
+        run: |
+          ruby <<'RUBY'
+          require "yaml"
+          require "json"
+
+          path = ENV.fetch("CONFIG_PATH")
+          config = YAML.safe_load(
+            File.read(path),
+            permitted_classes: [],
+            permitted_symbols: [],
+            aliases: false
+          )
+
+          abort("#{path}: root must be a YAML object") unless config.is_a?(Hash)
+
+          dependencies = config["dependencies"]
+          unless dependencies.is_a?(Hash) && !dependencies.empty?
+            abort("#{path}: dependencies must contain at least one dependency")
+          end
+
+          payload = dependencies.map do |name, dependency|
+            abort("#{path}: #{name} must be a YAML object") unless dependency.is_a?(Hash)
+
+            provider_url = dependency["providerUrl"]
+            branch = dependency["branch"]
+            notifications = dependency["notifications"]
+
+            unless provider_url.is_a?(String) && !provider_url.strip.empty?
+              abort("#{path}: #{name}.providerUrl is required")
+            end
+            unless branch.is_a?(String) && !branch.strip.empty?
+              abort("#{path}: #{name}.branch is required")
+            end
+
+            unless notifications.is_a?(Array) && !notifications.empty?
+              abort("#{path}: #{name}.notifications must contain at least one notification")
+            end
+
+            notifications.each_with_index do |notification, index|
+              location = "#{name}.notifications[#{index}]"
+              unless notification.is_a?(Hash)
+                abort("#{path}: #{location} must be a YAML object")
+              end
+
+              type = notification["type"]
+              unless type.is_a?(String) && !type.strip.empty?
+                abort("#{path}: #{location}.type is required")
+              end
+
+              next unless type == "email"
+
+              recipients = notification["recipients"]
+              valid_recipients = recipients.is_a?(Array) && !recipients.empty? &&
+                recipients.all? do |recipient|
+                  recipient.is_a?(String)
+                end
+              unless valid_recipients
+                abort("#{path}: #{location}.recipients must contain email addresses")
+              end
+            end
+
+            {
+              "subName" => name.to_s,
+              "address" => provider_url.strip,
+              "branch" => branch.strip,
+              "notifications" => notifications
+            }
+          end
+
+          output = File.join(ENV.fetch("RUNNER_TEMP"), "breakalert-subscriptions.json")
+          File.write(output, JSON.pretty_generate(payload))
+          notification_count = payload.sum { |dependency| dependency["notifications"].length }
+          puts "Validated #{payload.length} dependencies and #{notification_count} notifications."
+          RUBY
+
+      - name: Register dependencies with BreakAlert
+        shell: bash
+        run: |
+          encoded_webhook="$(jq -rn \
+            --arg value "$BREAKALERT_CLIENT_WEBHOOK" \
+            '$value | @uri')"
+
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data-binary "@$RUNNER_TEMP/breakalert-subscriptions.json" \
+            "${BREAKALERT_BASE_URL%/}/subscriptions/processAll?webUrl=${encoded_webhook}"
